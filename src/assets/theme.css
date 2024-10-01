@@ -87,4 +87,9 @@
         background: rgba(20, 85, 30, .4);
     }
 
+    .square.last-move {
+        background: rgba(0,155,199,.41);
+    }
+
+
 }

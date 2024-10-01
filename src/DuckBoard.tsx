@@ -1,11 +1,20 @@
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, Signal } from "solid-js"
-import { Piece as DuckOpsPiece, DuckChess, makeSquare, parseFen, parseSquare, SquareName, Move } from 'duckops'
+import { Piece as DuckOpsPiece, DuckChess, makeSquare, parseFen, parseSquare, SquareName, Move, makeUci, parseUci} from 'duckops'
 
 const eventPosition = (e: MouchEvent): [number, number] | undefined => {
   if (e.clientX || e.clientX === 0) return [e.clientX, e.clientY!];
   if (e.targetTouches?.[0]) return [e.targetTouches[0].clientX, e.targetTouches[0].clientY];
   return; // touchend has no position!
 };
+
+const eventPositionWithBounds = (e: MouchEvent, bounds: DOMRectReadOnly): [number, number] | undefined => {
+  let pos = eventPosition(e)
+
+  if (pos) {
+    return [(pos[0] - bounds.left) / bounds.width, (pos[1] - bounds.top) / bounds.height]
+  }
+}
+
 
 
 function lerp(a: number, b: number, t = 0.1) {
@@ -76,12 +85,12 @@ const distance = (a: { left: number, top: number }, b: { left: number, top: numb
   return Math.sqrt(x * x + y * y)
 }
 
-const abs_to_coord = (pos: [number, number], is_flipped: boolean, bounds: DOMRectReadOnly) => {
+const abs_to_coord = (pos: [number, number], is_flipped: boolean) => {
   let files = is_flipped ? FILES_REVERSED : FILES
   let ranks = is_flipped ? RANKS : RANKS_REVERSED
 
-  let file = Math.floor((8 * (pos[0] - bounds.left)) / bounds.width)
-  let rank = 7 - Math.floor((8 * (pos[1] - bounds.top)) / bounds.height)
+  let file = Math.floor(8 * pos[0])
+  let rank = 7 - Math.floor(8 * pos[1])
 
   return { file: files[file], rank: ranks[rank] }
 }
@@ -179,15 +188,15 @@ const on_piece_equals = (a: OnPiece, b: OnPiece) => {
   return a.piece.file === b.piece.file && a.piece.rank === b.piece.rank
 }
 
-export const DuckBoard = (props: { orientation?: Color, fen: string, view_only?: boolean }) => {
+export const DuckBoard = (props: { on_user_move: (uci: string) => void, do_uci: string | undefined, do_takeback: undefined, orientation?: Color, fen: string, view_only?: Color | true }) => {
 
-  const is_view_only = createMemo(() => props.view_only)
+  const view_only = createMemo(() => props.view_only)
 
   let [move_before_duck, set_move_before_duck] = createSignal<[Move, DuckChess] | undefined>(undefined)
 
-  const can_move_piece = createMemo(() => !is_view_only() && move_before_duck() === undefined)
-
   const [duckchess, set_duckchess] = createSignal(DuckChess.fromSetupUnchecked(parseFen(props.fen).unwrap()), { equals: false })
+
+  const can_move_piece = createMemo(() => (!view_only() || view_only() === duckchess().turn) && move_before_duck() === undefined)
 
   createEffect(on(() => props.fen, fen => {
     set_duckchess(DuckChess.fromSetupUnchecked(parseFen(fen).unwrap()))
@@ -335,6 +344,10 @@ export const DuckBoard = (props: { orientation?: Color, fen: string, view_only?:
     })
   })))
 
+
+  const [last_move, set_last_move] = createSignal<Move | undefined>(undefined)
+
+
   const [drag_orig, set_drag_orig] = createSignal<Pos | undefined>(undefined, { equals: false })
   const [drag_move, set_drag_move] = createSignal<[number, number] | undefined>(undefined, { equals: false })
 
@@ -365,17 +378,84 @@ export const DuckBoard = (props: { orientation?: Color, fen: string, view_only?:
     }
   })
 
+  const [duck_square, set_duck_square] = createSignal<Pos | undefined>()
+  const temp_duck_piece = createMemo(on(duck_square, (pos) => {
+    if (pos) {
+      return new OnPiece({ role: 'd', file: pos.file, rank: pos.rank }, is_flipped())
+    }
+  }))
+
+  const duck_square_on_board = createMemo(() => {
+    let duck = duckchess().board.duck
+    if (duck) {
+      let sq = makeSquare(duck)
+      return { file: sq[0], rank: sq[1] }
+    }
+  })
+
   const duck_initial_dests = createMemo(() => {
     let dc = duckchess()
     let mbd = move_before_duck()
 
-    if (mbd !== undefined) {
+    if (mbd !== undefined && !dc.board.duck) {
       let [move] = mbd
 
       return Array.from(dc.duck_dests(move.from, move.to), makeSquare)
     }
   })
 
+  const duck_move_dests = createMemo(() => {
+    let dc = duckchess()
+    let mbd = move_before_duck()
+
+    if (mbd !== undefined && dc.board.duck) {
+      let [move] = mbd
+
+      return Array.from(dc.duck_dests(move.from, move.to), makeSquare)
+    }
+  })
+
+
+  createEffect(on(() => props.fen, () => {
+    set_last_move(undefined)
+  }))
+
+  createEffect(on(() => props.do_uci, (uci: string | undefined) => {
+    if (!uci) {
+      return
+    }
+    let move = parseUci(uci)
+    if (move) {
+      batch(() => {
+        with_duckchess((dc: DuckChess) => {
+          dc.play(move)
+          dc.play_duck(move)
+          set_move_before_duck(undefined)
+          return dc
+        })
+      })
+
+      set_last_move({ from: move.from, to: move.to })
+      set_selected_square(undefined)
+    }
+  }))
+
+  createEffect(on(() => props.do_takeback, () => {
+
+    let md = move_before_duck()
+
+    if (md) {
+      let [_, dc] = md
+
+      batch(() => {
+        set_duck_square(undefined)
+        set_selected_square(undefined)
+        set_move_before_duck(undefined)
+        with_duckchess(() => dc)
+      })
+    }
+
+  }))
 
   createEffect(on(selected_piece, (piece) => {
 
@@ -389,18 +469,6 @@ export const DuckBoard = (props: { orientation?: Color, fen: string, view_only?:
 
   }))
 
-  createEffect(on(drag_move, (move => {
-    if (!move) {
-      return
-    }
-
-    let drag = dragging_piece()
-    if (drag) {
-      drag.animated_left = move[0]
-      drag.animated_top = move[1]
-    }
-  })))
-
   createEffect(on(drag_orig, (orig => {
     let s = selected_square()
     let dc = duckchess()
@@ -410,6 +478,19 @@ export const DuckBoard = (props: { orientation?: Color, fen: string, view_only?:
       if (can && dc.board.get(pos2square(orig))?.color === turn()) {
         set_selected_square(orig)
       }
+
+      let dids = duck_initial_dests()
+      if (dids) {
+        if (dids.includes(posSquareName(orig))) {
+          set_duck_square(orig)
+        }
+      }
+
+      let dmds = duck_move_dests()
+      if (dmds) {
+        set_selected_square(duck_square_on_board())
+      }
+
     } else {
       if (s) {
         set_selected_square(undefined)
@@ -417,55 +498,105 @@ export const DuckBoard = (props: { orientation?: Color, fen: string, view_only?:
     }
   })))
 
-  let $duckboard_el: HTMLDivElement
+  createEffect(on(drag_move, (move => {
+    if (!move) {
+      return
+    }
 
+    let drag = dragging_piece()
+    if (drag) {
+      drag.animated_left = move[0] * 800 - 50
+      drag.animated_top = move[1] * 800 - 50
+    }
+
+
+    if (duck_square()) {
+      let orig = abs_to_coord(move, is_flipped())
+      let dids = duck_initial_dests()
+      if (orig && dids && dids.includes(posSquareName(orig))) {
+        set_duck_square(orig)
+      } else {
+        set_duck_square(undefined)
+      }
+    }
+  })))
+
+
+  let $duckboard_el: HTMLDivElement
 
   onMount(() => {
 
     let [on_resize, set_on_resize] = createSignal(undefined, { equals: false })
     let bounds = createMemo(on(on_resize, () => $duckboard_el.getBoundingClientRect()))
-
     const dragStart = (e: MouchEvent) => {
-      let position = eventPosition(e)
+      let position = eventPositionWithBounds(e, bounds())
       if (position) {
-        let orig = abs_to_coord(position, is_flipped(), bounds())
+        let orig = abs_to_coord(position, is_flipped())
 
         if (orig) {
           e.preventDefault()
           set_drag_orig(orig)
-          set_drag_move([
-            (position[0] - bounds().left) / bounds().width * 800 - 50,
-            (position[1] - bounds().top) / bounds().height * 800 - 50]
-          )
+          set_drag_move(position)
         }
       }
     }
 
     const on_move_handle = (e: MouchEvent) => {
-      let position = eventPosition(e)
+      let position = eventPositionWithBounds(e, bounds())
       if (position) {
-        let bs = bounds()
         e.preventDefault()
-        set_drag_move([
-          (position[0] - bs.left) / bs.width * 800 - 50,
-          (position[1] - bs.top) / bs.height * 800 - 50]
-        )
+        set_drag_move(position)
       }
     }
 
     const on_drop_handle = (e: MouchEvent) => {
-      let position = eventPosition(e)
+
+      let position = eventPositionWithBounds(e, bounds())
       if (position) {
-        let dest = abs_to_coord(position, is_flipped(), bounds())
+        let dest = abs_to_coord(position, is_flipped())
 
         if (dest) {
           e.preventDefault()
+
+          let ds = duck_square()
+
+          let mbd = move_before_duck()
+
+          if (ds) {
+            let move = {
+              duck: parseSquare(posSquareName(ds))
+            }
+            batch(() => {
+              with_duckchess((dc: DuckChess) => {
+                dc.play_duck(move)
+
+
+
+                props.on_user_move(makeUci({
+                  from: mbd![0].from,
+                  to: mbd![0].to,
+                  promotion: mbd![0].promotion,
+                  duck: move.duck
+                }))
+
+
+                set_move_before_duck(undefined)
+                return dc
+              })
+            })
+
+            set_last_move({ from: mbd![0].from, to: mbd![0].to })
+            set_selected_square(undefined)
+            set_duck_square(undefined)
+            return
+          }
+
+          set_duck_square(undefined)
 
           let dests = selected_dests()
 
           if (dests?.includes(posSquareName(dest))) {
             let orig = posSquareName(selected_piece()!.piece)
-
 
             batch(() => {
               with_duckchess((dc: DuckChess) => {
@@ -473,14 +604,45 @@ export const DuckBoard = (props: { orientation?: Color, fen: string, view_only?:
                   from: parseSquare(orig),
                   to: parseSquare(posSquareName(dest))
                 }
-                dc.play(move)
                 set_move_before_duck([move, dc.clone()])
+                dc.play(move)
                 return dc
               })
             })
 
+            set_selected_square(undefined)
+            return
           }
 
+          let dmds = duck_move_dests()
+
+
+          if (dmds?.includes(posSquareName(dest))) {
+            batch(() => {
+              with_duckchess((dc: DuckChess) => {
+                let move = {
+                  duck: parseSquare(posSquareName(dest))
+                }
+
+
+                props.on_user_move(makeUci({
+                  from: mbd![0].from,
+                  to: mbd![0].to,
+                  promotion: mbd![0].promotion,
+                  duck: move.duck
+                }))
+
+                dc.play_duck(move)
+                set_move_before_duck(undefined)
+                return dc
+              })
+            })
+
+            set_last_move({ from: mbd![0].from, to: mbd![0].to })
+
+            set_selected_square(undefined)
+            return
+          }
         }
       }
 
@@ -527,9 +689,18 @@ export const DuckBoard = (props: { orientation?: Color, fen: string, view_only?:
     <div ref={_ => $duckboard_el = _} class='pieces'>
         <For each={duck_initial_dests()}>{ dest => <Dest dest={dest}/> }</For>
         <For each={selected_dests()}>{ dest => <Dest dest={dest}/> }</For>
+        <For each={duck_move_dests()}>{ dest => <Dest dest={dest}/> }</For>
         <Show when={selected_square()}>{ selected => <Selected selected={posSquareName(selected())}/>}</Show>
+
+        <Show when={last_move()}>{ last_move =>
+          <>
+            <LastMove square={makeSquare(last_move().from)} />
+            <LastMove square={makeSquare(last_move().to)} />
+          </>
+        }</Show>
         <For each={on_pieces_animated()}>{piece => <Piece piece={piece}/>}</For>
         <Show when={dragging_piece()}>{piece => <Piece klass='dragging' piece={piece()}/>}</Show>
+        <Show when={temp_duck_piece()}>{ duck => <Piece piece={duck()}/> }</Show>
     </div>
   </div>
   </>)
@@ -575,5 +746,11 @@ const Dest = (props: { dest: SquareName }) => {
 const Selected = (props: { selected: SquareName }) => {
   return <SquareKlass klass='selected' square={props.selected} />
 }
+
+const LastMove = (props: { square: SquareName }) => {
+  return <SquareKlass klass='last-move' square={props.square} />
+}
+
+
 
 
