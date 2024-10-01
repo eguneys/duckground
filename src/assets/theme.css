@@ -1,0 +1,62 @@
+.duckboard {
+    aspect-ratio: 1;
+    height: 90vh;
+    border-radius: 4px;
+
+    display: grid;
+    grid-template-areas: 'pieces ranks'
+    'files .';
+
+    grid-template-rows: auto 1em;
+    grid-template-columns: auto 1em;
+}
+
+.files {
+    grid-area: files;
+}
+
+.ranks {
+    grid-area: ranks;
+}
+
+.pieces {
+    grid-area: pieces;
+}
+
+.pieces {
+    background-image: url('/green-plastic.png');
+    background-size: cover;
+}
+
+.ranks{
+    display: flex;
+    flex-flow: column;
+    align-items: center;
+
+    & .rank {
+        display: flex;
+        align-items: center;
+        flex: 1 0 0;
+    }
+}
+
+.files {
+    display: flex;
+
+    & .file {
+        text-align: center;
+        flex: 1 0 0;
+    }
+}
+
+
+.pieces {
+    position: relative;
+
+    .piece {
+        position: absolute;
+        width: calc(100%/8);
+        height: calc(100%/8);
+        background-size: cover;
+    }
+}
