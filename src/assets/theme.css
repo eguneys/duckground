@@ -1,8 +1,11 @@
 .duckboard {
+    user-select: none;
+    cursor: pointer;
     aspect-ratio: 1;
     height: 90vh;
     border-radius: 4px;
 
+    position: relative;
     display: grid;
     grid-template-areas: 'pieces ranks'
     'files .';
@@ -24,6 +27,11 @@
 }
 
 .pieces {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     background-image: url('/green-plastic.png');
     background-size: cover;
 }
@@ -53,10 +61,30 @@
 .pieces {
     position: relative;
 
-    .piece {
+    .piece, .square {
+        pointer-events: none;
         position: absolute;
         width: calc(100%/8);
         height: calc(100%/8);
         background-size: cover;
     }
+
+    .piece.ghost {
+        opacity: 0.3;
+    }
+
+    .square.dest {
+        background: radial-gradient(rgba(20, 85, 30, 0.5) 19%, rgba(0, 0, 0, 0) 20%);
+        pointer-events: auto;
+
+        &:hover {
+            background: rgba(20, 85, 30, .3);
+        }
+    }
+
+
+    .square.selected {
+        background: rgba(20, 85, 30, .4);
+    }
+
 }

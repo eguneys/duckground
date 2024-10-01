@@ -1,10 +1,16 @@
 import { createSignal } from 'solid-js'
 import './assets/theme.css'
-import { Color, DuckBoard } from './DuckBoard'
+import { Color, DuckBoard, DuckBoardState } from './DuckBoard'
+import { makeFen, DuckChess, compat } from 'duckops'
 
 function App() {
 
-  const [fen, set_fen] = createSignal('rnbqkbnr/pppppppp/8/4d3/8/8/PPPPPPPP/RNBQKBNR')
+
+  let dd = DuckChess.default()
+  let f = makeFen(dd.toSetup())
+
+  const [state, set_state] = createSignal<DuckBoardState>('movepiece')
+  const [fen, set_fen] = createSignal(f)
   const [orientation, set_orientation] = createSignal<Color>('white')
 
   document.addEventListener('keydown', e => {
@@ -14,7 +20,7 @@ function App() {
   })
 
   return (<>
-  <DuckBoard fen={fen()} orientation={orientation()}/>
+  <DuckBoard fen={fen()} orientation={orientation()} state={state()}/>
   <button onClick={() => {
     set_fen('8/8/2d5/3P4/8/8/8/8')
   }}>Set Endgame</button>
