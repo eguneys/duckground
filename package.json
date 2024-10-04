@@ -3,9 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "dist/duckground.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "dev": "vite --port=3000",
-    "build": "tsc -b && vite build",
+    "build": "vite build && tsc --declaration --declarationDir dist",
     "preview": "vite preview"
   },
   "dependencies": {
