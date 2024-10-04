@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [solid()],
   build: {
 
+    minify: false,
     lib: {
       entry: resolve(__dirname, 'src/index.ts'),
       name: 'Duckground',

@@ -1,5 +1,7 @@
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, Signal } from "solid-js"
 import { Piece as DuckOpsPiece, DuckChess, makeSquare, parseFen, parseSquare, SquareName, Move, makeUci, parseUci} from 'duckops'
+import createRAF from "@solid-primitives/raf";
+import { makeEventListener } from "@solid-primitives/event-listener";
 
 const eventPosition = (e: MouchEvent): [number, number] | undefined => {
   if (e.clientX || e.clientX === 0) return [e.clientX, e.clientY!];
@@ -301,7 +303,7 @@ export const DuckBoard = (props: { on_user_move: (uci: string) => void, do_uci: 
 
     let pieces = on_pieces_animated().filter(_ => _.has_animation)
 
-    let i = requestAnimationFrame(step)
+    const [_running, start, stop] = createRAF(step)
 
     let last: number | undefined
     function step(now: number) {
@@ -334,13 +336,12 @@ export const DuckBoard = (props: { on_user_move: (uci: string) => void, do_uci: 
             }
           }
         })
-
-        i = requestAnimationFrame(step)
       })
     }
 
+    start()
     onCleanup(() => {
-      cancelAnimationFrame(i)
+      stop()
     })
   })))
 
@@ -653,28 +654,23 @@ export const DuckBoard = (props: { on_user_move: (uci: string) => void, do_uci: 
       })
     }
 
-    $duckboard_el.addEventListener('touchstart', e => dragStart(e), { passive: false })
-    $duckboard_el.addEventListener('mousedown', e => dragStart(e), { passive: false })
+    let clear = []
+    clear.push(makeEventListener($duckboard_el, 'touchstart', e => dragStart(e), { passive: false }))
+    clear.push(makeEventListener($duckboard_el, 'mousedown', e => dragStart(e), { passive: false }))
 
     const on_resize_handle = () => set_on_resize()
-    document.addEventListener('scroll', on_resize_handle)
-    document.addEventListener('resize', on_resize_handle)
 
-    document.addEventListener('touchmove', on_move_handle)
-    document.addEventListener('mousemove', on_move_handle)
+    clear.push(makeEventListener(document, 'scroll', on_resize_handle))
+    clear.push(makeEventListener(document, 'resize', on_resize_handle))
 
-    document.addEventListener('touchend', on_drop_handle)
-    document.addEventListener('mouseup', on_drop_handle)
+    clear.push(makeEventListener(document, 'touchmove', on_move_handle))
+    clear.push(makeEventListener(document, 'mousemove', on_move_handle))
+
+    clear.push(makeEventListener(document, 'touchend', on_drop_handle))
+    clear.push(makeEventListener(document, 'mouseup', on_drop_handle))
 
     onCleanup(() => {
-      document.removeEventListener('scroll', on_resize_handle)
-      document.removeEventListener('resize', on_resize_handle)
-
-      document.removeEventListener('touchmove', on_move_handle)
-      document.removeEventListener('mousemove', on_move_handle)
-
-    document.removeEventListener('touchend', on_drop_handle)
-    document.removeEventListener('mouseup', on_drop_handle)
+      clear.forEach(_ => _())
     })
   })
 
